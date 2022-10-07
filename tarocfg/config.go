@@ -103,24 +103,22 @@ var (
 	// required in lnd to run pool.
 	minimalCompatibleVersion = &verrpc.Version{
 		AppMajor: 0,
-		AppMinor: 15,
-		AppPatch: 99,
+		AppMinor: 1,
+		AppPatch: 0,
 
 		// We don't actually require the invoicesrpc calls. But if we
 		// try to use lndclient on an lnd that doesn't have it enabled,
 		// the library will try to load the invoices.macaroon anyway and
 		// fail. So until that bug is fixed in lndclient, we require the
 		// build tag to be active.
-		BuildTags: []string{
-			"signrpc", "walletrpc", "chainrpc", "invoicesrpc",
-		},
+		BuildTags: []string{},
 	}
 )
 
 // ChainConfig houses the configuration options that govern which chain/network
 // we operate on.
 type ChainConfig struct {
-	Network string `long:"network" description:"network to run on" choice:"regtest" choice:"testnet" choice:"simnet"`
+	Network string `long:"network" description:"network to run on" choice:"mainnet" choice:"regtest" choice:"testnet" choice:"simnet"`
 
 	SigNetChallenge string `long:"signetchallenge" description:"Connect to a custom signet network defined by this challenge instead of using the global default signet test network -- Can be specified multiple times"`
 }
@@ -422,6 +420,8 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor) (*Config,
 	// network flags passed; assign active network params
 	// while we're at it.
 	switch cfg.ChainConf.Network {
+	case "mainnet":
+		cfg.ActiveNetParams = chaincfg.MainNetParams
 	case "testnet":
 		cfg.ActiveNetParams = chaincfg.TestNet3Params
 	case "regtest":
