@@ -1,6 +1,7 @@
 package tarogarden
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -671,9 +672,16 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// TODO(guggero): Add exclusion proofs once FundPsbt actually
 		// returns a transaction with P2TR change outputs and also
 		// decorates the output with the internal key correctly.
+		blockResponse, err := b.cfg.ChainBridge.GetBlock(context.Background(), confInfo.BlockHash)
+		if err != nil {
+			return 0, fmt.Errorf("unable to get Block "+
+				"err: %v", err)
+		}
+		blockMsg := wire.MsgBlock{}
+		blockMsg.Deserialize(bytes.NewReader(blockResponse.RawHex))
 		mintingProofs, err := proof.NewMintingBlobs(&proof.MintParams{
 			BaseProofParams: proof.BaseProofParams{
-				Block:       confInfo.Block,
+				Block:       &blockMsg,
 				Tx:          confInfo.Tx,
 				TxIndex:     int(confInfo.TxIndex),
 				OutputIndex: int(b.anchorOutputIndex),

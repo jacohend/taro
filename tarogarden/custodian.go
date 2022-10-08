@@ -581,7 +581,7 @@ func hasWalletTaprootOutput(tx *lndclient.Transaction) bool {
 // isWalletTaprootOutput returns true if the given output is recognized by the
 // wallet as belonging to us and is a Taproot output.
 func isWalletTaprootOutput(out *lnrpc.OutputDetail) bool {
-	const p2trType = lnrpc.OutputScriptType_SCRIPT_TYPE_WITNESS_V1_TAPROOT
+	const p2trType = 9
 	return out.IsOurAddress && out.OutputType == p2trType
 }
 

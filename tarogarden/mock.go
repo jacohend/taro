@@ -215,7 +215,6 @@ func (m *MockChainBridge) SendConfNtfn(reqNo int, blockHash *chainhash.Hash,
 		BlockHash:   blockHash,
 		BlockHeight: uint32(blockHeight),
 		TxIndex:     uint32(blockIndex),
-		Block:       block,
 		Tx:          tx,
 	}
 }

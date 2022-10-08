@@ -3,6 +3,7 @@ package tarogarden
 import (
 	"context"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnrpc/neutrinorpc"
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -231,6 +232,9 @@ func SupportedMintingStores() []string {
 // notifications, the current height, publish transactions, and also estimate
 // fees.
 type ChainBridge interface {
+	//GetBlock returns block struct for blockhash
+	GetBlock(ctx context.Context, blockHash *chainhash.Hash) (*neutrinorpc.GetBlockResponse, error)
+
 	// RegisterConfirmationsNtfn registers an intent to be notified once
 	// txid reaches numConfs confirmations.
 	RegisterConfirmationsNtfn(ctx context.Context, txid *chainhash.Hash,

@@ -3,6 +3,7 @@ package taro
 import (
 	"context"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnrpc/neutrinorpc"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -26,21 +27,21 @@ func NewLndRpcChainBridge(lnd *lndclient.LndServices) *LndRpcChainBridge {
 	}
 }
 
+func (l *LndRpcChainBridge) GetBlock(ctx context.Context, blockHash *chainhash.Hash) (*neutrinorpc.GetBlockResponse, error) {
+	return l.lnd.Neutrino.GetBlock(ctx, &neutrinorpc.GetBlockRequest{
+		Hash: blockHash.String(),
+	})
+}
+
 // RegisterConfirmationsNtfn registers an intent to be notified once
 // txid reaches numConfs confirmations.
 func (l *LndRpcChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 	txid *chainhash.Hash, pkScript []byte, numConfs, heightHint uint32,
 	includeBlock bool) (*chainntnfs.ConfirmationEvent, chan error, error) {
 
-	var opts []lndclient.NotifierOption
-	if includeBlock {
-		opts = append(opts, lndclient.WithIncludeBlock())
-	}
-
 	ctx, cancel := context.WithCancel(ctx) // nolint:govet
 	confChan, errChan, err := l.lnd.ChainNotifier.RegisterConfirmationsNtfn(
 		ctx, txid, pkScript, int32(numConfs), int32(heightHint),
-		opts...,
 	)
 	if err != nil {
 		cancel()

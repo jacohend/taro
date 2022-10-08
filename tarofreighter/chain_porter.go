@@ -2,6 +2,7 @@ package tarofreighter
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -342,8 +343,15 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 		p.cfg.ErrChan <- mkErr("error decoding proof suffix: %v", err)
 		return
 	}
+	blockResponse, err := p.cfg.ChainBridge.GetBlock(context.Background(), confEvent.BlockHash)
+	if err != nil {
+		p.cfg.ErrChan <- mkErr("error getting block: %v", err)
+		return
+	}
+	blockMsg := wire.MsgBlock{}
+	blockMsg.Deserialize(bytes.NewReader(blockResponse.RawHex))
 	err = senderProofSuffix.UpdateTransitionProof(&proof.BaseProofParams{
-		Block:   confEvent.Block,
+		Block:   &blockMsg,
 		Tx:      confEvent.Tx,
 		TxIndex: int(confEvent.TxIndex),
 	})
@@ -381,8 +389,15 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 		p.cfg.ErrChan <- mkErr("error decoding receiver proof: %v", err)
 		return
 	}
+	blockResponse, err = p.cfg.ChainBridge.GetBlock(context.Background(), confEvent.BlockHash)
+	if err != nil {
+		p.cfg.ErrChan <- mkErr("error getting block: %v", err)
+		return
+	}
+	blockMsg = wire.MsgBlock{}
+	blockMsg.Deserialize(bytes.NewReader(blockResponse.RawHex))
 	err = receiverProofSuffix.UpdateTransitionProof(&proof.BaseProofParams{
-		Block:   confEvent.Block,
+		Block:   &blockMsg,
 		Tx:      confEvent.Tx,
 		TxIndex: int(confEvent.TxIndex),
 	})
