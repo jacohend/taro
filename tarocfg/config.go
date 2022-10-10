@@ -420,6 +420,8 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor) (*Config,
 	// network flags passed; assign active network params
 	// while we're at it.
 	switch cfg.ChainConf.Network {
+	case "mainnet":
+		cfg.ActiveNetParams = chaincfg.MainNetParams
 	case "testnet":
 		cfg.ActiveNetParams = chaincfg.TestNet3Params
 	case "regtest":
