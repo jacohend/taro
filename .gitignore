@@ -15,6 +15,7 @@ tarod-debug
 /itest/lnd-itest
 /itest/btcd-itest
 /itest/regtest/*
+/itest/*.log
 /itest/.backendlogs/*
 /itest/.minerlogs/*
 /itest/tarod-itest
@@ -27,6 +28,10 @@ tarod-debug
 
 # Sed backup files.
 *.bak
+
+# Editor configs.
+*.idea
+*.iml
 
 # Dependency directories (remove the comment below to include it)
 # vendor/

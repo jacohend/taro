@@ -200,7 +200,43 @@ type sendPackage struct {
 // anchor output as well as the Taro script root of the output (the Taproot
 // tweak).
 func (s *sendPackage) inputAnchorPkScript() ([]byte, []byte, error) {
-	taroScriptRoot := s.InputAsset.Commitment.TapscriptRoot(nil)
+	// If the input asset was received non-interactively, then the Taro tree
+	// of the input anchor output was built with asset leaves that had empty
+	// SplitCommitments. However, the SplitCommitment field was
+	// populated when the transfer of the input asset was verified.
+	// To recompute the correct output script, we need to build a Taro tree
+	// from the input asset without any SplitCommitment.
+	inputAssetCopy := s.InputAsset.Asset.Copy()
+	inputAnchorCommitmentCopy, err := s.InputAsset.Commitment.Copy()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Assets received via non-interactive split should have one witness,
+	// with an empty PrevID and a SplitCommitment present.
+	if inputAssetCopy.HasSplitCommitmentWitness() &&
+		*inputAssetCopy.PrevWitnesses[0].PrevID == asset.ZeroPrevID {
+
+		inputAssetCopy.PrevWitnesses[0].SplitCommitment = nil
+
+		// Build the new Taro tree by first updating the asset
+		// commitment tree with the new asset leaf, and then the
+		// top-level Taro tree.
+		inputCommitments := inputAnchorCommitmentCopy.Commitments()
+		inputCommitmentKey := inputAssetCopy.TaroCommitmentKey()
+		inputAssetTree := inputCommitments[inputCommitmentKey]
+		err = inputAssetTree.Update(inputAssetCopy, false)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		err = inputAnchorCommitmentCopy.Update(inputAssetTree, false)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	taroScriptRoot := inputAnchorCommitmentCopy.TapscriptRoot(nil)
 
 	anchorPubKey := txscript.ComputeTaprootOutputKey(
 		s.InputAsset.InternalKey.PubKey, taroScriptRoot[:],
@@ -501,6 +537,10 @@ func (s *sendPackage) deliverResponse(respChan chan<- *PendingParcel) {
 		"notification", s.ReceiverAddr.ID(),
 		s.ReceiverAddr.ScriptKey.SerializeCompressed())
 
+	// Get the output index of the receiver from the spend locators.
+	receiverStateKey := s.ReceiverAddr.AssetCommitmentKey()
+	receiverIndex := s.SendDelta.Locators[receiverStateKey].OutputIndex
+
 	respChan <- &PendingParcel{
 		NewAnchorPoint: s.OutboundPkg.NewAnchorPoint,
 		TransferTx:     s.OutboundPkg.AnchorTx,
@@ -532,8 +572,11 @@ func (s *sendPackage) deliverResponse(respChan chan<- *PendingParcel) {
 			{
 				AssetInput: AssetInput{
 					PrevID: asset.PrevID{
-						OutPoint: s.OutboundPkg.NewAnchorPoint,
-						ID:       s.ReceiverAddr.ID(),
+						OutPoint: wire.OutPoint{
+							Hash:  s.OutboundPkg.NewAnchorPoint.Hash,
+							Index: receiverIndex,
+						},
+						ID: s.ReceiverAddr.ID(),
 						ScriptKey: asset.ToSerialized(
 							&s.ReceiverAddr.ScriptKey,
 						),
