@@ -182,7 +182,7 @@ func CreateTemplatePsbt(locators SpendLocators) (*psbt.Packet, error) {
 		maxOutputIndex++
 	}
 
-	txTemplate := wire.NewMsgTx(int32(maxOutputIndex))
+	txTemplate := wire.NewMsgTx(2)
 	for i := uint32(0); i < maxOutputIndex; i++ {
 		txTemplate.AddTxOut(createDummyOutput())
 	}
@@ -246,7 +246,9 @@ func IsValidInput(input *commitment.TaroCommitment,
 	inputCommitments := input.Commitments()
 	assetCommitment, ok := inputCommitments[addr.TaroCommitmentKey()]
 	if !ok {
-		return nil, needsSplit, ErrMissingInputAsset
+		return nil, needsSplit, fmt.Errorf("input commitment does "+
+			"not contain asset_id=%x: %w", addr.TaroCommitmentKey(),
+			ErrMissingInputAsset)
 	}
 
 	// The asset tree must have a non-empty Asset at the location
@@ -260,7 +262,10 @@ func IsValidInput(input *commitment.TaroCommitment,
 	}
 
 	if inputAsset == nil {
-		return nil, needsSplit, ErrMissingInputAsset
+		return nil, needsSplit, fmt.Errorf("input commitment does not "+
+			"contain leaf with script_key=%x: %w",
+			inputScriptKey.SerializeCompressed(),
+			ErrMissingInputAsset)
 	}
 
 	// For Normal assets, we also check that the input asset amount is
@@ -299,8 +304,6 @@ func PrepareAssetSplitSpend(addr address.Taro, prevInput asset.PrevID,
 	// If no locators are provided, we create a split with mock locators to
 	// verify that the desired split is possible. We can later regenerate a
 	// split with the final output indexes.
-	//
-	// TODO(jhb): Handle change of 0 amount / splits with no change.
 	if updatedDelta.Locators == nil {
 		updatedDelta.Locators = CreateDummyLocators(
 			[][32]byte{senderStateKey, receiverStateKey},
@@ -323,6 +326,14 @@ func PrepareAssetSplitSpend(addr address.Taro, prevInput asset.PrevID,
 	receiverLocator.ScriptKey = asset.ToSerialized(&addr.ScriptKey)
 	receiverLocator.Amount = addr.Amount
 	updatedDelta.Locators[receiverStateKey] = receiverLocator
+
+	// Enforce an unspendable root split if the split sends the full value
+	// of the input asset.
+	if senderLocator.Amount == 0 &&
+		senderLocator.ScriptKey != asset.NUMSCompressedKey {
+
+		return nil, commitment.ErrInvalidScriptKey
+	}
 
 	splitCommitment, err := commitment.NewSplitCommitment(
 		inputAsset, prevInput.OutPoint,
@@ -557,7 +568,7 @@ func CreateSpendCommitments(inputCommitment *commitment.TaroCommitment,
 	//
 	// TODO(jhb): Add emptiness check for senderCommitment, to prune the
 	// AssetCommitment entirely when possible.
-	senderTaroCommitment := *inputCommitment
+	senderTaroCommitment := *inputCommitmentCopy
 	err = senderTaroCommitment.Update(senderCommitment, false)
 	if err != nil {
 		return nil, err

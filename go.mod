@@ -19,7 +19,7 @@ require (
 	github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.2
 	github.com/lightninglabs/lndclient v0.16.0-1
 	github.com/lightninglabs/protobuf-hex-display v1.4.3-hex-display
-	github.com/lightningnetwork/lnd v0.15.0-beta.rc6.0.20221010023403-406fc86f38a6
+	github.com/lightningnetwork/lnd v0.15.0-beta.rc6.0.20221017190515-609cc8b883c7
 	github.com/lightningnetwork/lnd/cert v1.1.1
 	github.com/lightningnetwork/lnd/ticker v1.1.0
 	github.com/lightningnetwork/lnd/tlv v1.0.3

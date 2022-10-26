@@ -141,6 +141,7 @@ func queryAddr(ctx *cli.Context) error {
 		start = startTime.Unix()
 	}
 
+	// Wrap with int64() so math.MaxInt64 will cross-compile on 32-bit arch.
 	end := int64(math.MaxInt64)
 	if ctx.IsSet(createdBeforeName) {
 		endOffset, err := time.ParseDuration(ctx.String(createdBeforeName))
