@@ -2,7 +2,7 @@
 // versions:
 //   sqlc v1.15.0
 
-package sqlite
+package sqlc
 
 import (
 	"context"
@@ -49,6 +49,7 @@ type Querier interface {
 	FetchMintingBatchesByInverseState(ctx context.Context, batchState int16) ([]FetchMintingBatchesByInverseStateRow, error)
 	FetchMintingBatchesByState(ctx context.Context, batchState int16) ([]FetchMintingBatchesByStateRow, error)
 	FetchRootNode(ctx context.Context, namespace string) (MssmtNode, error)
+	FetchScriptKeyIDByTweakedKey(ctx context.Context, tweakedScriptKey []byte) (int32, error)
 	FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]AssetSeedling, error)
 	FetchSpendProofs(ctx context.Context, transferID int32) (FetchSpendProofsRow, error)
 	GenesisAssets(ctx context.Context) ([]GenesisAsset, error)
@@ -56,7 +57,6 @@ type Querier interface {
 	GetRootKey(ctx context.Context, id []byte) (Macaroon, error)
 	InsertAddr(ctx context.Context, arg InsertAddrParams) (int32, error)
 	InsertAssetDelta(ctx context.Context, arg InsertAssetDeltaParams) error
-	InsertAssetFamilySig(ctx context.Context, arg InsertAssetFamilySigParams) (int32, error)
 	InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedlingParams) error
 	InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAssetSeedlingIntoBatchParams) error
 	InsertAssetTransfer(ctx context.Context, arg InsertAssetTransferParams) (int32, error)
@@ -72,8 +72,8 @@ type Querier interface {
 	// generate rows that have NULL values for the family key fields if an asset
 	// doesn't have a family key. See the comment in fetchAssetSprouts for a work
 	// around that needs to be used with this query until a sqlc bug is fixed.
-	QueryAssetBalancesByAsset(ctx context.Context, assetIDFilter interface{}) ([]QueryAssetBalancesByAssetRow, error)
-	QueryAssetBalancesByFamily(ctx context.Context, keyFamFilter interface{}) ([]QueryAssetBalancesByFamilyRow, error)
+	QueryAssetBalancesByAsset(ctx context.Context, assetIDFilter []byte) ([]QueryAssetBalancesByAssetRow, error)
+	QueryAssetBalancesByFamily(ctx context.Context, keyFamFilter []byte) ([]QueryAssetBalancesByFamilyRow, error)
 	QueryAssetTransfers(ctx context.Context, arg QueryAssetTransfersParams) ([]QueryAssetTransfersRow, error)
 	// We use a LEFT JOIN here as not every asset has a family key, so this'll
 	// generate rows that have NULL values for the family key fields if an asset
@@ -91,6 +91,7 @@ type Querier interface {
 	UpdateMintingBatchState(ctx context.Context, arg UpdateMintingBatchStateParams) error
 	UpsertAddrEvent(ctx context.Context, arg UpsertAddrEventParams) (int32, error)
 	UpsertAssetFamilyKey(ctx context.Context, arg UpsertAssetFamilyKeyParams) (int32, error)
+	UpsertAssetFamilySig(ctx context.Context, arg UpsertAssetFamilySigParams) (int32, error)
 	UpsertAssetProof(ctx context.Context, arg UpsertAssetProofParams) error
 	UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (int32, error)
 	UpsertGenesisAsset(ctx context.Context, arg UpsertGenesisAssetParams) (int32, error)

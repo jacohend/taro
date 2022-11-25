@@ -2,7 +2,7 @@
 // versions:
 //   sqlc v1.15.0
 
-package sqlite
+package sqlc
 
 import (
 	"database/sql"
@@ -123,6 +123,7 @@ type AssetWitness struct {
 type ChainTxn struct {
 	TxnID       int32
 	Txid        []byte
+	ChainFees   int64
 	RawTx       []byte
 	BlockHeight sql.NullInt32
 	BlockHash   []byte

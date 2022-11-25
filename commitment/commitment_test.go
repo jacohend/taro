@@ -204,7 +204,7 @@ func TestNewAssetCommitment(t *testing.T) {
 		success := t.Run(testCase.name, func(t *testing.T) {
 			assets := testCase.f()
 			commitment, err := NewAssetCommitment(assets...)
-			require.Equal(t, testCase.err, err)
+			require.ErrorIs(t, err, testCase.err)
 			if testCase.err == nil {
 				// Ensure that the Taro commitment was properly set.
 				require.NotZero(t, commitment.TaroCommitmentKey())
@@ -464,7 +464,7 @@ func TestSplitCommitment(t *testing.T) {
 		err  error
 	}{
 		{
-			name: "invalid asset input type",
+			name: "collectible split with excess external locators",
 			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
 				input := randAsset(
 					t, genesisCollectible,
@@ -473,14 +473,52 @@ func TestSplitCommitment(t *testing.T) {
 				root := &SplitLocator{
 					OutputIndex: 0,
 					AssetID:     genesisCollectible.ID(),
+					ScriptKey:   asset.NUMSCompressedKey,
+					Amount:      0,
+				}
+				external := []*SplitLocator{{
+					OutputIndex: 1,
+					AssetID:     genesisCollectible.ID(),
 					ScriptKey: asset.ToSerialized(
-						input.ScriptKey.PubKey,
+						randKey(t).PubKey(),
 					),
 					Amount: input.Amount,
-				}
-				return input, root, nil
+				}, {
+					OutputIndex: 1,
+					AssetID:     genesisCollectible.ID(),
+					ScriptKey: asset.ToSerialized(
+						randKey(t).PubKey(),
+					),
+					Amount: input.Amount,
+				}}
+				return input, root, external
 			},
-			err: ErrInvalidInputType,
+			err: ErrInvalidSplitLocatorCount,
+		},
+		{
+			name: "collectible split commitment",
+			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
+				input := randAsset(
+					t, genesisCollectible,
+					familyKeyCollectible,
+				)
+				root := &SplitLocator{
+					OutputIndex: 0,
+					AssetID:     genesisCollectible.ID(),
+					ScriptKey:   asset.NUMSCompressedKey,
+					Amount:      0,
+				}
+				external := []*SplitLocator{{
+					OutputIndex: 1,
+					AssetID:     genesisCollectible.ID(),
+					ScriptKey: asset.ToSerialized(
+						randKey(t).PubKey(),
+					),
+					Amount: input.Amount,
+				}}
+				return input, root, external
+			},
+			err: nil,
 		},
 		{
 			name: "locator duplicate output index",

@@ -8,10 +8,10 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/tarodb/sqlite"
+	"github.com/lightninglabs/taro/tarodb/sqlc"
 )
 
-// UpsertAssetStore is a sub-set of the main sqlite.Querier interface that
+// UpsertAssetStore is a sub-set of the main sqlc.Querier interface that
 // contains methods related to inserting/updating assets.
 type UpsertAssetStore interface {
 	// UpsertGenesisPoint inserts a new or updates an existing genesis point
@@ -27,6 +27,11 @@ type UpsertAssetStore interface {
 	//  * or use a sort of mix-in type?
 	UpsertGenesisAsset(ctx context.Context, arg GenesisAsset) (int32, error)
 
+	// FetchScriptKeyIDByTweakedKey determines the database ID of a script
+	// key by querying it by the tweaked key.
+	FetchScriptKeyIDByTweakedKey(ctx context.Context,
+		tweakedScriptKey []byte) (int32, error)
+
 	// UpsertInternalKey inserts a new or updates an existing internal key
 	// into the database.
 	UpsertInternalKey(ctx context.Context, arg InternalKey) (int32, error)
@@ -34,8 +39,8 @@ type UpsertAssetStore interface {
 	// UpsertScriptKey inserts a new script key on disk into the DB.
 	UpsertScriptKey(context.Context, NewScriptKey) (int32, error)
 
-	// InsertAssetFamilySig inserts a new asset family sig into the DB.
-	InsertAssetFamilySig(ctx context.Context, arg AssetFamSig) (int32, error)
+	// UpsertAssetFamilySig inserts a new asset family sig into the DB.
+	UpsertAssetFamilySig(ctx context.Context, arg AssetFamSig) (int32, error)
 
 	// UpsertAssetFamilyKey inserts a new or updates an existing family key
 	// on disk, and returns the primary key.
@@ -44,7 +49,7 @@ type UpsertAssetStore interface {
 
 	// InsertNewAsset inserts a new asset on disk.
 	InsertNewAsset(ctx context.Context,
-		arg sqlite.InsertNewAssetParams) (int32, error)
+		arg sqlc.InsertNewAssetParams) (int32, error)
 }
 
 // upsertGenesis imports a new genesis point into the database or returns the
@@ -145,7 +150,7 @@ func upsertAssetsWithGenesis(ctx context.Context, q UpsertAssetStore,
 		// With all the dependent data inserted, we can now insert the
 		// base asset information itself.
 		assetIDs[idx], err = q.InsertNewAsset(
-			ctx, sqlite.InsertNewAssetParams{
+			ctx, sqlc.InsertNewAssetParams{
 				GenesisID:        genAssetID,
 				Version:          int32(a.Version),
 				ScriptKeyID:      scriptKeyID,
@@ -218,7 +223,7 @@ func upsertFamilyKey(ctx context.Context, familyKey *asset.FamilyKey,
 	// together otherwise disparate asset IDs).
 	//
 	// TODO(roasbeef): sig here doesn't actually matter?
-	famSigID, err := q.InsertAssetFamilySig(ctx, AssetFamSig{
+	famSigID, err := q.UpsertAssetFamilySig(ctx, AssetFamSig{
 		GenesisSig: familyKey.Sig.Serialize(),
 		GenAssetID: genAssetID,
 		KeyFamID:   famID,
@@ -259,15 +264,11 @@ func upsertScriptKey(ctx context.Context, scriptKey asset.ScriptKey,
 	}
 
 	// At this point, we only have the actual asset as read from a TLV, so
-	// we don't actually have the raw script key here. Instead, we'll use
-	// an UPSERT to trigger a conflict on the tweaked script key so we can
-	// obtain the script key ID we need here. This is for the proof
-	// import based on an addr send.
-	//
-	// TODO(roasbeef): or just fetch the one we need?
-	scriptKeyID, err := q.UpsertScriptKey(ctx, NewScriptKey{
-		TweakedScriptKey: scriptKey.PubKey.SerializeCompressed(),
-	})
+	// we don't actually have the raw script key here. Let's check if we
+	// have the script key already.
+	scriptKeyID, err := q.FetchScriptKeyIDByTweakedKey(
+		ctx, scriptKey.PubKey.SerializeCompressed(),
+	)
 	if err != nil {
 		// If this fails, then we're just importing the proof to mirror
 		// the state of another node. In this case, we'll just import

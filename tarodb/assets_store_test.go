@@ -9,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
@@ -20,75 +21,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func randPrivKey(t *testing.T) *btcec.PrivateKey {
-	privKey, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-	return privKey
-}
-
-func randPubKey(t *testing.T) *btcec.PublicKey {
-	return randPrivKey(t).PubKey()
-}
-
-func randAssetID(t *testing.T) asset.ID {
-	var a asset.ID
-	_, err := rand.Read(a[:])
-	require.NoError(t, err)
-
-	return a
-}
-
-func randWitnesses(t *testing.T) wire.TxWitness {
-	numElements := test.RandInt[int]() % 5
-	if numElements == 0 {
-		return nil
-	}
-
-	w := make(wire.TxWitness, numElements)
-	for i := 0; i < numElements; i++ {
-		elem := make([]byte, 10)
-		_, err := rand.Read(elem)
-		require.NoError(t, err)
-
-		w[i] = elem
-	}
-
-	return w
-}
-
-func randSplitCommit(t *testing.T,
-	a asset.Asset) *asset.SplitCommitment {
-
-	// 50/50 chance there's no commitment at all.
-	if test.RandInt[int]()%2 == 0 {
-		return nil
-	}
-
-	rootLoc := commitment.SplitLocator{
-		OutputIndex: uint32(test.RandInt[int32]()),
-		AssetID:     randAssetID(t),
-		Amount:      a.Amount / 2,
-		ScriptKey:   asset.ToSerialized(randPubKey(t)),
-	}
-	splitLoc := commitment.SplitLocator{
-		OutputIndex: uint32(test.RandInt[int32]()),
-		AssetID:     randAssetID(t),
-		Amount:      a.Amount / 2,
-		ScriptKey:   asset.ToSerialized(randPubKey(t)),
-	}
-
-	split, err := commitment.NewSplitCommitment(
-		&a, test.RandOp(t), &rootLoc, &splitLoc,
-	)
-	require.NoError(t, err)
-
-	assetSplit := split.SplitAssets[splitLoc].PrevWitnesses[0]
-
-	return assetSplit.SplitCommitment
-}
-
 type assetGenOptions struct {
 	assetGen asset.Genesis
+
+	customFam bool
+
+	noFamKey bool
 
 	famKeyPriv *btcec.PrivateKey
 
@@ -104,11 +42,11 @@ func defaultAssetGenOpts(t *testing.T) *assetGenOptions {
 
 	return &assetGenOptions{
 		assetGen:     gen,
-		famKeyPriv:   randPrivKey(t),
+		famKeyPriv:   test.RandPrivKey(t),
 		amt:          uint64(test.RandInt[uint32]()),
 		genesisPoint: test.RandOp(t),
 		scriptKey: asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
-			PubKey: randPubKey(t),
+			PubKey: test.RandPubKey(t),
 			KeyLocator: keychain.KeyLocator{
 				Family: test.RandInt[keychain.KeyFamily](),
 				Index:  uint32(test.RandInt[int32]()),
@@ -127,6 +65,7 @@ func withAssetGenAmt(amt uint64) assetGenOpt {
 
 func withAssetGenKeyFam(key *btcec.PrivateKey) assetGenOpt {
 	return func(opt *assetGenOptions) {
+		opt.customFam = true
 		opt.famKeyPriv = key
 	}
 }
@@ -149,6 +88,12 @@ func withScriptKey(k asset.ScriptKey) assetGenOpt {
 	}
 }
 
+func withNoFamKey() assetGenOpt {
+	return func(opt *assetGenOptions) {
+		opt.noFamKey = true
+	}
+}
+
 func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 	opts := defaultAssetGenOpts(t)
 	for _, optFunc := range genOpts {
@@ -158,9 +103,9 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 	genesis := opts.assetGen
 	genesis.FirstPrevOut = opts.genesisPoint
 
-	famPriv := opts.famKeyPriv
+	famPriv := *opts.famKeyPriv
 
-	genSigner := asset.NewRawKeyGenesisSigner(famPriv)
+	genSigner := asset.NewRawKeyGenesisSigner(&famPriv)
 
 	famKey, sig, err := genSigner.SignGenesis(
 		keychain.KeyDescriptor{
@@ -177,8 +122,13 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 		ScriptKey:        opts.scriptKey,
 	}
 
-	// 50/50 chance that we'll actually have a family key.
-	if famPriv != nil && test.RandInt[int]()%2 == 0 {
+	// 50/50 chance that we'll actually have a family key. Or we'll always
+	// use it if a custom family key was specified.
+	switch {
+	case opts.noFamKey:
+		break
+
+	case opts.customFam || test.RandInt[int]()%2 == 0:
 		newAsset.FamilyKey = &asset.FamilyKey{
 			RawKey: keychain.KeyDescriptor{
 				PubKey: famKey,
@@ -211,21 +161,24 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 		for i := 0; i < numWitness; i++ {
 			scriptKey := asset.NewScriptKeyBIP0086(
 				keychain.KeyDescriptor{
-					PubKey: randPubKey(t),
+					PubKey: test.RandPubKey(t),
 				},
 			)
 			witnesses[i] = asset.Witness{
 				PrevID: &asset.PrevID{
 					OutPoint: test.RandOp(t),
-					ID:       randAssetID(t),
+					ID:       asset.RandID(t),
 					ScriptKey: asset.ToSerialized(
 						scriptKey.PubKey,
 					),
 				},
-				TxWitness: randWitnesses(t),
-				// For simplicity we just use the base asset itself as
-				// the "anchor" asset in the split commitment.
-				SplitCommitment: randSplitCommit(t, *newAsset),
+				TxWitness: test.RandTxWitnesses(t),
+				// For simplicity, we just use the base asset
+				// itself as the "anchor" asset in the split
+				// commitment.
+				SplitCommitment: commitment.RandSplitCommit(
+					t, *newAsset,
+				),
 			}
 		}
 	}
@@ -235,16 +188,14 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 	return newAsset
 }
 
-func assetWitnessEqual(t *testing.T, a, b []asset.Witness) {
-	t.Helper()
+func assertAssetEqual(t *testing.T, a, b *asset.Asset) {
+	if equal := a.DeepEqual(b); !equal {
+		// Print a nice diff if the native equality check fails.
+		require.Equal(t, b, a)
 
-	require.Equal(t, len(a), len(b))
-
-	for i := 0; i < len(a); i++ {
-		witA := a[i]
-		witB := b[i]
-
-		require.True(t, witA.DeepEqual(&witB))
+		// Make sure we fail in any case, even if the above equality
+		// check succeeds (which shouldn't be the case).
+		t.Fatalf("asset equality failed!")
 	}
 }
 
@@ -299,19 +250,12 @@ func TestImportAssetProof(t *testing.T) {
 			AnchorTxIndex:     test.RandInt[uint32](),
 			AnchorTx:          anchorTx,
 			OutputIndex:       0,
-			InternalKey:       randPubKey(t),
+			InternalKey:       test.RandPubKey(t),
 			ScriptRoot:        taroRoot,
 		},
 	}
 	if testAsset.FamilyKey != nil {
 		testProof.FamilyKey = &testAsset.FamilyKey.FamKey
-
-		// An asset in a proof would be de-serialized from the TLV and
-		// would not contain the raw family key. We blank it out here as
-		// well in order to test that behavior. We later check that the
-		// stored internal key (raw family key) is equal to the tweaked
-		// family key.
-		testAsset.FamilyKey.RawKey.PubKey = nil
 	}
 
 	// We'll now insert the internal key information as well as the script
@@ -367,26 +311,7 @@ func TestImportAssetProof(t *testing.T) {
 	// The DB asset should match the asset we inserted exactly.
 	dbAsset := assets[0]
 
-	// Before comparison, we unset the split commitments, so we can compare
-	// them directly.
-	assetWitnessEqual(t, testAsset.PrevWitnesses, dbAsset.PrevWitnesses)
-
-	dbAsset.PrevWitnesses = nil
-	testAsset.PrevWitnesses = nil
-
-	// We also need to look at the family key separately as the raw key is
-	// not stored in the proof.
-	if testAsset.FamilyKey != nil {
-		key := dbAsset.FamilyKey
-		require.Equal(t, &testAsset.FamilyKey.FamKey, key.RawKey.PubKey)
-		require.Equal(t, &key.FamKey, key.RawKey.PubKey)
-
-		// Blank them out for further comparison.
-		testAsset.FamilyKey = nil
-		dbAsset.FamilyKey = nil
-	}
-
-	require.Equal(t, testAsset, dbAsset.Asset)
+	assertAssetEqual(t, testAsset, dbAsset.Asset)
 
 	// Finally, we'll verify all the anchor information that was inserted
 	// on disk.
@@ -400,6 +325,22 @@ func TestImportAssetProof(t *testing.T) {
 		ScriptKey: *testAsset.ScriptKey.PubKey,
 	})
 	require.NoError(t, err)
+
+	// We should also be able to fetch the created asset above based on
+	// either the asset ID, or key family via the main coin selection
+	// routine.
+	var assetConstraints tarofreighter.CommitmentConstraints
+	if testAsset.FamilyKey != nil {
+		assetConstraints.FamilyKey = &testAsset.FamilyKey.FamKey
+	} else {
+		assetConstraints.AssetID = &assetID
+	}
+	selectedAssets, err := assetStore.SelectCommitment(
+		ctx, assetConstraints,
+	)
+	require.NoError(t, err)
+	require.Len(t, selectedAssets, 1)
+	assertAssetEqual(t, testAsset, selectedAssets[0].Asset)
 }
 
 // TestInternalKeyUpsert tests that if we insert an internal key that's a
@@ -411,7 +352,7 @@ func TestInternalKeyUpsert(t *testing.T) {
 	// First, we'll create a new instance of the database.
 	_, _, db := newAssetStore(t)
 
-	testKey := randPubKey(t)
+	testKey := test.RandPubKey(t)
 
 	// Now we'll insert two internal keys that are the same. We should get
 	// the same response back (the primary key) for both of them.
@@ -438,6 +379,8 @@ type assetDesc struct {
 	anchorPoint wire.OutPoint
 
 	keyFamily *btcec.PrivateKey
+
+	noFamKey bool
 
 	scriptKey *asset.ScriptKey
 
@@ -495,7 +438,7 @@ func newAssetGenerator(t *testing.T,
 
 	famKeys := make([]*btcec.PrivateKey, numFamKeys)
 	for i := 0; i < numFamKeys; i++ {
-		famKeys[i] = randPrivKey(t)
+		famKeys[i] = test.RandPrivKey(t)
 	}
 
 	return &assetGenerator{
@@ -512,6 +455,8 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 
 	ctx := context.Background()
 	for _, desc := range assetDescs {
+		desc := desc
+
 		opts := []assetGenOpt{
 			withAssetGenAmt(desc.amt), withAssetGenPoint(desc.anchorPoint),
 			withAssetGen(desc.assetGen),
@@ -520,8 +465,15 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 		if desc.keyFamily != nil {
 			opts = append(opts, withAssetGenKeyFam(desc.keyFamily))
 		}
+		if desc.noFamKey {
+			opts = append(opts, withNoFamKey())
+		}
 		if desc.scriptKey != nil {
 			opts = append(opts, withScriptKey(*desc.scriptKey))
+		}
+
+		if desc.amt == 0 {
+			opts = append(opts, withScriptKey(asset.NUMSScriptKey))
 		}
 		asset := randAsset(t, opts...)
 
@@ -537,7 +489,7 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 			ctx, assetStore.db, &proof.AnnotatedProof{
 				AssetSnapshot: &proof.AssetSnapshot{
 					AnchorTx:    anchorPoint,
-					InternalKey: randPubKey(t),
+					InternalKey: test.RandPubKey(t),
 					Asset:       asset,
 					ScriptRoot:  taroCommitment,
 				},
@@ -557,6 +509,19 @@ func (a *assetGenerator) bindAssetID(i int, op wire.OutPoint) *asset.ID {
 	return &id
 }
 
+func (a *assetGenerator) bindKeyFamily(i int, op wire.OutPoint) *btcec.PublicKey {
+	gen := a.assetGens[i]
+	gen.FirstPrevOut = op
+
+	famPriv := *a.familyKeys[i]
+
+	tweakedPriv := txscript.TweakTaprootPrivKey(
+		famPriv, gen.FamilyKeyTweak(),
+	)
+
+	return tweakedPriv.PubKey()
+}
+
 // TestSelectCommitment tests that the coin selection logic can properly select
 // assets from a canned set that meet the specified set of constraints.
 func TestSelectCommitment(t *testing.T) {
@@ -565,7 +530,6 @@ func TestSelectCommitment(t *testing.T) {
 	const (
 		numAssetIDs = 10
 		numFamKeys  = 2
-		numAnchors  = 3
 	)
 
 	assetGen := newAssetGenerator(t, numAssetIDs, numFamKeys)
@@ -644,10 +608,42 @@ func TestSelectCommitment(t *testing.T) {
 			numAssets: 0,
 			err:       tarofreighter.ErrNoPossibleAssetInputs,
 		},
+
+		// Create two assets, one has a key family the other doesn't.
+		// We should only get one asset back.
+		{
+			name: "asset with key family",
+			assets: []assetDesc{
+				{
+					assetGen: assetGen.assetGens[0],
+					amt:      10,
+
+					anchorPoint: assetGen.anchorPoints[0],
+
+					keyFamily: assetGen.familyKeys[0],
+				},
+				{
+					assetGen: assetGen.assetGens[1],
+					amt:      10,
+
+					anchorPoint: assetGen.anchorPoints[1],
+					noFamKey:    true,
+				},
+			},
+			constraints: tarofreighter.CommitmentConstraints{
+				FamilyKey: assetGen.bindKeyFamily(
+					0, assetGen.anchorPoints[0],
+				),
+				MinAmt: 1,
+			},
+			numAssets: 1,
+		},
 	}
 
 	ctx := context.Background()
 	for _, test := range tests {
+		test := test
+
 		t.Run(test.name, func(t *testing.T) {
 			// First, we'll create a new assets store and then
 			// insert the set of assets described by the asset
@@ -681,7 +677,7 @@ func TestAssetExportLog(t *testing.T) {
 	ctx := context.Background()
 
 	targetScriptKey := asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
-		PubKey: randPubKey(t),
+		PubKey: test.RandPubKey(t),
 		KeyLocator: keychain.KeyLocator{
 			Family: test.RandInt[keychain.KeyFamily](),
 			Index:  uint32(test.RandInt[int32]()),
@@ -726,7 +722,7 @@ func TestAssetExportLog(t *testing.T) {
 	})
 
 	newScriptKey := asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
-		PubKey: randPubKey(t),
+		PubKey: test.RandPubKey(t),
 		KeyLocator: keychain.KeyLocator{
 			Index:  uint32(rand.Int31()),
 			Family: keychain.KeyFamily(rand.Int31()),
@@ -746,6 +742,8 @@ func TestAssetExportLog(t *testing.T) {
 		SplitCommitment: nil,
 	}
 
+	chainFees := int64(100)
+
 	// With the assets inserted, we'll now construct the struct we'll used
 	// to commit a new spend on disk.
 	anchorTxHash := newAnchorTx.TxHash()
@@ -759,7 +757,7 @@ func TestAssetExportLog(t *testing.T) {
 			Index: 0,
 		},
 		NewInternalKey: keychain.KeyDescriptor{
-			PubKey: randPubKey(t),
+			PubKey: test.RandPubKey(t),
 			KeyLocator: keychain.KeyLocator{
 				Family: keychain.KeyFamily(rand.Int31()),
 				Index:  uint32(test.RandInt[int32]()),
@@ -784,6 +782,7 @@ func TestAssetExportLog(t *testing.T) {
 				ReceiverAssetProof: receiverBlob,
 			},
 		},
+		ChainFees: int64(chainFees),
 	}
 	require.NoError(t, assetsStore.LogPendingParcel(ctx, spendDelta))
 
@@ -805,7 +804,7 @@ func TestAssetExportLog(t *testing.T) {
 	// Finally, if we look for the set of confirmed transfers, nothing
 	// should be returned.
 	assetTransfers, err = db.QueryAssetTransfers(ctx, TransferQuery{
-		UnconfOnly: 1,
+		UnconfOnly: true,
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(assetTransfers))
@@ -876,9 +875,63 @@ func TestAssetExportLog(t *testing.T) {
 		t, uint32(blockHeight), extractSqlInt32[uint32](anchorTx.BlockHeight),
 	)
 	require.Equal(t, uint32(txIndex), extractSqlInt32[uint32](anchorTx.TxIndex))
+	require.Equal(t, chainFees, anchorTx.ChainFees)
 
 	// At this point, there should be no more pending parcels.
 	parcels, err = assetsStore.PendingParcels(ctx)
 	require.NoError(t, err)
 	require.Equal(t, 0, len(parcels))
+}
+
+// TestAssetFamilySigUpsert tests that if you try to insert another asset
+// family sig with the same asset_gen_id, then only one is actually created.
+func TestAssetFamilySigUpsert(t *testing.T) {
+	t.Parallel()
+
+	_, _, db := newAssetStore(t)
+	ctx := context.Background()
+
+	internalKey := test.RandPubKey(t)
+
+	// First, we'll insert all the required rows we need to satisfy the
+	// foreign key constraints needed to insert a new genesis sig.
+	keyID, err := db.UpsertInternalKey(ctx, InternalKey{
+		RawKey: internalKey.SerializeCompressed(),
+	})
+	require.NoError(t, err)
+
+	genesisPointID, err := upsertGenesisPoint(ctx, db, test.RandOp(t))
+	require.NoError(t, err)
+
+	genAssetID, err := upsertGenesis(
+		ctx, db, genesisPointID, asset.RandGenesis(t, asset.Normal),
+	)
+	require.NoError(t, err)
+
+	famID, err := db.UpsertAssetFamilyKey(ctx, AssetFamilyKey{
+		TweakedFamKey:  internalKey.SerializeCompressed(),
+		InternalKeyID:  keyID,
+		GenesisPointID: genesisPointID,
+	})
+	require.NoError(t, err)
+
+	// With all the other items inserted, we'll now insert an asset family
+	// sig.
+	famSigID, err := db.UpsertAssetFamilySig(ctx, AssetFamSig{
+		GenesisSig: []byte{0x01},
+		GenAssetID: genAssetID,
+		KeyFamID:   famID,
+	})
+	require.NoError(t, err)
+
+	// If we insert the very same sig, then we should get the same fam sig
+	// ID back.
+	famSigID2, err := db.UpsertAssetFamilySig(ctx, AssetFamSig{
+		GenesisSig: []byte{0x01},
+		GenAssetID: genAssetID,
+		KeyFamID:   famID,
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, famSigID, famSigID2)
 }

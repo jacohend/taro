@@ -81,6 +81,50 @@ const (
 	SendStateWaitingConf
 )
 
+// String returns a human readable version of SendState.
+func (s SendState) String() string {
+	switch s {
+	case SendStateInitializing:
+		return "SendStateInitializing"
+
+	case SendStateCommitmentSelect:
+		return "SendStateCommitmentSelect"
+
+	case SendStateValidatedInput:
+		return "SendStateValidatedInput"
+
+	case SendStatePreparedSplit:
+		return "SendStatePreparedSplit"
+
+	case SendStatePreparedComplete:
+		return "SendStatePreparedComplete"
+
+	case SendStateSigned:
+		return "SendStateSigned"
+
+	case SendStateCommitmentsUpdated:
+		return "SendStateCommitmentsUpdated"
+
+	case SendStatePsbtFund:
+		return "SendStatePsbtFund"
+
+	case SendStatePsbtSign:
+		return "SendStatePsbtSign"
+
+	case SendStateLogCommit:
+		return "SendStateLogCommit"
+
+	case SendStateBroadcast:
+		return "SendStateBroadcast"
+
+	case SendStateWaitingConf:
+		return "SendStateWaitingConf"
+
+	default:
+		return fmt.Sprintf("<unknown_state(%d)>", s)
+	}
+}
+
 // AssetParcel is the main request to issue an asset transfer. This packages a
 // destination address, and also response context.
 type AssetParcel struct {
@@ -587,6 +631,6 @@ func (s *sendPackage) deliverResponse(respChan chan<- *PendingParcel) {
 				},
 			},
 		},
-		TotalFees: 0,
+		TotalFees: btcutil.Amount(s.OutboundPkg.ChainFees),
 	}
 }
